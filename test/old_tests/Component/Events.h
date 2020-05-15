@@ -31,11 +31,14 @@ namespace winrt::Component::factory_implementation
 {
     struct Events : EventsT<Events, implementation::Events, static_lifetime>
     {
+        Events() { ++s_constructorCount; }
         event_token StaticEvent(Windows::Foundation::EventHandler<int32_t> const& handler);
         void StaticEvent(event_token const& cookie);
         void RaiseStaticEvent(int value);
+        bool TestStaticLifetime();
 
     private:
         event<Windows::Foundation::EventHandler<int32_t>> m_static;
+        static std::atomic<int32_t> s_constructorCount;
     };
 }

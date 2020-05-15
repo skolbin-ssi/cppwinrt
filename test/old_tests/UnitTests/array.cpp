@@ -57,6 +57,8 @@ TEST_CASE("array,SmsBinaryMessage")
     REQUIRE(1 == a[0]);
     REQUIRE(2 == a[1]);
     REQUIRE(3 == a[2]);
+
+    query.Thumbprint(a);
 }
 
 //
@@ -889,7 +891,7 @@ TEST_CASE("array_view,array")
 {
     {
         std::array<int, 3> v = { 1, 2, 3 };
-        array_view<int> a = v;
+        array_view<int> const a = v;
         REQUIRE(a.data() == v.data());
         REQUIRE(a.size() == 3);
     }
@@ -906,6 +908,31 @@ TEST_CASE("array_view,array")
         array_view<int const> a = v;
         REQUIRE(a.data() == v.data());
         REQUIRE(a.size() == 3);
+    }
+}
+
+// Tests array_view construction for various cv-qualified conversions
+TEST_CASE("array_view,cv array_view")
+{
+    int v[3] = { 1, 2, 3 };
+    array_view<int> a = v;
+    {
+        array_view<const int> a2 = a;
+        REQUIRE(a2.data() == a.data());
+        REQUIRE(a2.size() == 3);
+        REQUIRE(a2 == a);
+    }
+    {
+        array_view<volatile int> a2 = a;
+        REQUIRE(a2.data() == a.data());
+        REQUIRE(a2.size() == 3);
+        REQUIRE(a2 == a);
+    }
+    {
+        array_view<const volatile int> a2 = a;
+        REQUIRE(a2.data() == a.data());
+        REQUIRE(a2.size() == 3);
+        REQUIRE(a2 == a);
     }
 }
 
@@ -1222,4 +1249,36 @@ TEST_CASE("array_view,compare,array_view")
     REQUIRE(!result.less);
     REQUIRE(result.greater_equal);
     REQUIRE(!result.less_equal);
+}
+
+// Verify that class template argument deduction works for array_view.
+TEST_CASE("array_view,ctad")
+{
+#define REQUIRE_DEDUCED_AS(T, ...) \
+    static_assert(std::is_same_v<array_view<T>, decltype(array_view(__VA_ARGS__))>)
+
+    uint8_t a[3]{};
+    REQUIRE_DEDUCED_AS(uint8_t, &a[0], &a[0]);
+    REQUIRE_DEDUCED_AS(uint8_t, a);
+
+    std::array<uint8_t, 3> ar{};
+    REQUIRE_DEDUCED_AS(uint8_t, ar);
+
+    std::vector<uint8_t> v{};
+    REQUIRE_DEDUCED_AS(uint8_t, v);
+
+    uint8_t const ca[3]{};
+    REQUIRE_DEDUCED_AS(uint8_t const, &ca[0], &ca[0]);
+    REQUIRE_DEDUCED_AS(uint8_t const, ca);
+
+    std::array<uint8_t, 3> const car{};
+    REQUIRE_DEDUCED_AS(uint8_t const, car);
+
+    std::array<uint8_t const, 3> arc{};
+    REQUIRE_DEDUCED_AS(uint8_t const, arc);
+
+    std::vector<uint8_t> const cv{};
+    REQUIRE_DEDUCED_AS(uint8_t const, cv);
+
+#undef REQUIRE_DEDUCED_AS
 }
