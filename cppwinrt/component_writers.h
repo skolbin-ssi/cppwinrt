@@ -347,7 +347,7 @@ catch (...) { return winrt::to_hresult(); }
 
         if (!default_constructor)
         {
-            w.write(R"(        [[noreturn]] Windows::Foundation::IInspectable ActivateInstance() const
+            w.write(R"(        [[noreturn]] winrt::Windows::Foundation::IInspectable ActivateInstance() const
         {
             throw hresult_not_implemented();
         }
@@ -393,7 +393,7 @@ catch (...) { return winrt::to_hresult(); }
             return;
         }
 
-        write_type_namespace(w, type_namespace);
+        auto wrap_type = wrap_type_namespace(w, type_namespace);
 
         for (auto&&[factory_name, factory] : get_factories(w, type))
         {
@@ -538,8 +538,6 @@ catch (...) { return winrt::to_hresult(); }
                 }
             }
         }
-
-        write_close_namespace(w);
     }
 
     static void write_component_override_dispatch_base(writer& w, TypeDef const& type)
@@ -833,7 +831,7 @@ catch (...) { return winrt::to_hresult(); }
             auto format = R"(namespace winrt::@::factory_implementation
 {
     template <typename D, typename T, typename... I>
-    struct __declspec(empty_bases) %T : implements<D, Windows::Foundation::IActivationFactory%, I...>
+    struct __declspec(empty_bases) %T : implements<D, winrt::Windows::Foundation::IActivationFactory%, I...>
     {
         using instance_type = @::%;
 

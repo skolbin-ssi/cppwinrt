@@ -1,4 +1,13 @@
 
+#if defined(_MSC_VER)
+#include <intrin.h>
+#define WINRT_IMPL_RETURNADDRESS() _ReturnAddress()
+#elif defined(__GNUC__)
+#define WINRT_IMPL_RETURNADDRESS() __builtin_extract_return_addr(__builtin_return_address(0))
+#else
+#define WINRT_IMPL_RETURNADDRESS() nullptr
+#endif
+
 namespace winrt::impl
 {
     struct heap_traits
@@ -46,6 +55,21 @@ namespace winrt::impl
         return { message, size };
     }
 
+    inline hstring message_from_hresult(hresult code) noexcept
+    {
+        handle_type<impl::heap_traits> message;
+
+        uint32_t const size = WINRT_IMPL_FormatMessageW(0x00001300, // FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS
+            nullptr,
+            code,
+            0x00000400, // MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT)
+            reinterpret_cast<wchar_t*>(message.put()),
+            0,
+            nullptr);
+
+        return trim_hresult_message(message.get(), size);
+    }
+
     constexpr int32_t hresult_from_win32(uint32_t const x) noexcept
     {
         return (int32_t)(x) <= 0 ? (int32_t)(x) : (int32_t)(((x) & 0x0000FFFF) | (7 << 16) | 0x80000000);
@@ -60,7 +84,7 @@ namespace winrt::impl
     {
         error_info_fallback(int32_t code, void* message) noexcept :
             m_code(code),
-            m_message(*reinterpret_cast<winrt::hstring*>(&message))
+            m_message(message ? *reinterpret_cast<winrt::hstring*>(&message) : message_from_hresult(code))
         {
         }
 
@@ -155,7 +179,7 @@ namespace winrt::impl
 
     [[noreturn]] inline void __stdcall fallback_RoFailFastWithErrorContext(int32_t) noexcept
     {
-        std::terminate();
+        abort();
     }
 }
 
@@ -183,17 +207,17 @@ WINRT_EXPORT namespace winrt
             return *this;
         }
 
-        explicit hresult_error(hresult const code) noexcept : m_code(code)
+        explicit hresult_error(hresult const code) noexcept : m_code(verify_error(code))
         {
             originate(code, nullptr);
         }
 
-        hresult_error(hresult const code, param::hstring const& message) noexcept : m_code(code)
+        hresult_error(hresult const code, param::hstring const& message) noexcept : m_code(verify_error(code))
         {
             originate(code, get_abi(message));
         }
 
-        hresult_error(hresult const code, take_ownership_from_abi_t) noexcept : m_code(code)
+        hresult_error(hresult const code, take_ownership_from_abi_t) noexcept : m_code(verify_error(code))
         {
             com_ptr<impl::IErrorInfo> info;
             WINRT_IMPL_GetErrorInfo(0, info.put_void());
@@ -257,17 +281,7 @@ WINRT_EXPORT namespace winrt
                 }
             }
 
-            handle_type<impl::heap_traits> message;
-
-            uint32_t const size = WINRT_IMPL_FormatMessageW(0x00001300, // FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS
-                nullptr,
-                m_code,
-                0x00000400, // MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT)
-                reinterpret_cast<wchar_t*>(message.put()),
-                0,
-                nullptr);
-
-            return impl::trim_hresult_message(message.get(), size);
+            return impl::message_from_hresult(m_code);
         }
 
         template <typename To>
@@ -298,13 +312,20 @@ WINRT_EXPORT namespace winrt
         void originate(hresult const code, void* message) noexcept
         {
             static int32_t(__stdcall* handler)(int32_t error, void* message, void* exception) noexcept;
-            impl::load_runtime_function("RoOriginateLanguageException", handler, fallback_RoOriginateLanguageException);
+            impl::load_runtime_function(L"combase.dll", "RoOriginateLanguageException", handler, fallback_RoOriginateLanguageException);
             WINRT_VERIFY(handler(code, message, nullptr));
 
             com_ptr<impl::IErrorInfo> info;
             WINRT_VERIFY_(0, WINRT_IMPL_GetErrorInfo(0, info.put_void()));
             WINRT_VERIFY(info.try_as(m_info));
         }
+
+        static hresult verify_error(hresult const code) noexcept
+        {
+            WINRT_ASSERT(code < 0);
+            return code;
+        }
+
 
 #ifdef __clang__
 #pragma clang diagnostic push
@@ -412,8 +433,13 @@ WINRT_EXPORT namespace winrt
         hresult_canceled(take_ownership_from_abi_t) noexcept : hresult_error(impl::error_canceled, take_ownership_from_abi) {}
     };
 
-    [[noreturn]] inline __declspec(noinline) void throw_hresult(hresult const result)
+    [[noreturn]] inline WINRT_IMPL_NOINLINE void throw_hresult(hresult const result)
     {
+        if (winrt_throw_hresult_handler)
+        {
+            winrt_throw_hresult_handler(0, nullptr, nullptr, WINRT_IMPL_RETURNADDRESS(), result);
+        }
+
         if (result == impl::error_bad_alloc)
         {
             throw std::bad_alloc();
@@ -487,11 +513,11 @@ WINRT_EXPORT namespace winrt
         throw hresult_error(result, take_ownership_from_abi);
     }
 
-    inline __declspec(noinline) hresult to_hresult() noexcept
+    inline WINRT_IMPL_NOINLINE hresult to_hresult() noexcept
     {
         if (winrt_to_hresult_handler)
         {
-            return winrt_to_hresult_handler(_ReturnAddress());
+            return winrt_to_hresult_handler(WINRT_IMPL_RETURNADDRESS());
         }
 
         try
@@ -517,6 +543,31 @@ WINRT_EXPORT namespace winrt
         catch (std::exception const& e)
         {
             return hresult_error(impl::error_fail, to_hstring(e.what())).to_abi();
+        }
+    }
+
+    inline WINRT_IMPL_NOINLINE hstring to_message()
+    {
+        if (winrt_to_message_handler)
+        {
+            return winrt_to_message_handler(WINRT_IMPL_RETURNADDRESS());
+        }
+
+        try
+        {
+            throw;
+        }
+        catch (hresult_error const& e)
+        {
+            return e.message();
+        }
+        catch (std::exception const& ex)
+        {
+            return to_hstring(ex.what());
+        }
+        catch (...)
+        {
+            abort();
         }
     }
 
@@ -574,8 +625,22 @@ WINRT_EXPORT namespace winrt
     [[noreturn]] inline void terminate() noexcept
     {
         static void(__stdcall * handler)(int32_t) noexcept;
-        impl::load_runtime_function("RoFailFastWithErrorContext", handler, impl::fallback_RoFailFastWithErrorContext);
+        impl::load_runtime_function(L"combase.dll", "RoFailFastWithErrorContext", handler, impl::fallback_RoFailFastWithErrorContext);
         handler(to_hresult());
         abort();
     }
 }
+
+namespace winrt::impl
+{
+    inline hresult check_hresult_allow_bounds(hresult const result)
+    {
+        if (result != impl::error_out_of_bounds && result != impl::error_fail && result != impl::error_file_not_found)
+        {
+            check_hresult(result);
+        }
+        return result;
+    }
+}
+
+#undef WINRT_IMPL_RETURNADDRESS

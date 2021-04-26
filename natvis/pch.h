@@ -20,11 +20,15 @@
 #include "base_com_ptr.h"
 #include "base_string.h"
 #include "base_string_input.h"
+#include "base_string_operators.h"
 #include "base_array.h"
 #include "base_weak_ref.h"
 #include "base_agile_ref.h"
 #include "base_error.h"
 #include "base_marshaler.h"
+#include "base_delegate.h"
+#include "base_events.h"
+#include "base_activation.h"
 #include "base_implements.h"
 #include <rometadataapi.h>
 #include <rometadata.h>
@@ -85,21 +89,22 @@ inline bool starts_with(std::string_view const& value, std::string_view const& m
 }
 
 winmd::reader::TypeDef FindType(Microsoft::VisualStudio::Debugger::DkmProcess* process, std::string_view const& typeName);
+winmd::reader::TypeDef FindType(Microsoft::VisualStudio::Debugger::DkmProcess* process, std::string_view const& typeNamespace, std::string_view const& typeName);
 
-inline winmd::reader::TypeDef ResolveType(winmd::reader::coded_index<winmd::reader::TypeDefOrRef> index) noexcept
+inline winmd::reader::TypeDef ResolveType(Microsoft::VisualStudio::Debugger::DkmProcess* process, winmd::reader::coded_index<winmd::reader::TypeDefOrRef> index) noexcept
 {
     switch (index.type())
     {
     case winmd::reader::TypeDefOrRef::TypeDef:
         return index.TypeDef();
     case winmd::reader::TypeDefOrRef::TypeRef:
-        return winmd::reader::find_required(index.TypeRef());
+        return FindType(process, index.TypeRef().TypeNamespace(), index.TypeRef().TypeName());
     default: //case TypeDefOrRef::TypeSpec:
         return winmd::reader::find_required(index.TypeSpec().Signature().
             GenericTypeInst().GenericType().TypeRef());
     }
 }
 
-std::pair<winmd::reader::TypeDef, std::wstring> ResolveTypeInterface(winmd::reader::coded_index<winmd::reader::TypeDefOrRef> index);
+std::pair<winmd::reader::TypeDef, std::wstring> ResolveTypeInterface(Microsoft::VisualStudio::Debugger::DkmProcess* process, winmd::reader::coded_index<winmd::reader::TypeDefOrRef> index);
 
 void ClearTypeResolver();

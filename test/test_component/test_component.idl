@@ -148,6 +148,8 @@ namespace test_component
 
         event Windows.Foundation.TypedEventHandler<Class, DeferrableEventArgs> DeferrableEvent;
         Windows.Foundation.IAsyncOperation<Int32> RaiseDeferrableEventAsync();
+
+        static Boolean TestNoMakeDetection();
     }
 
     namespace Structs
@@ -273,6 +275,23 @@ namespace test_component
                 Class4(Int32 one, Int32 two);
                 static void Class4_Static2();
             }
+        }
+    }
+
+    namespace Windows
+    {
+        struct Struct
+        {
+            Windows.Foundation.Rect rect;
+            Windows.Foundation.Numerics.Matrix3x2 matrix;
+            Windows.Foundation.IReference<Windows.Foundation.Rect> ref_rect;
+        };
+
+        runtimeclass Class
+        {
+            Class();
+            static void StaticMethod(Struct param);
+            void Method(Windows.Foundation.Uri param);
         }
     }
 }

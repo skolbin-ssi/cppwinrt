@@ -1,3 +1,10 @@
+#if defined(_MSC_VER)
+#if defined(_DEBUG) && !defined(WINRT_NO_MAKE_DETECTION)
+#pragma detect_mismatch("C++/WinRT WINRT_NO_MAKE_DETECTION", "make detection enabled (DEBUG and !WINRT_NO_MAKE_DETECTION)")
+#else
+#pragma detect_mismatch("C++/WinRT WINRT_NO_MAKE_DETECTION", "make detection disabled (!DEBUG or WINRT_NO_MAKE_DETECTION)")
+#endif
+#endif
 
 namespace winrt::impl
 {
@@ -1034,8 +1041,6 @@ namespace winrt::impl
             return Windows::Foundation::TrustLevel::BaseTrust;
         }
 
-        using is_factory = std::disjunction<std::is_same<Windows::Foundation::IActivationFactory, I>...>;
-
     private:
 
         class has_final_release
@@ -1050,7 +1055,7 @@ namespace winrt::impl
 
         using is_agile = std::negation<std::disjunction<std::is_same<non_agile, I>...>>;
         using is_inspectable = std::disjunction<std::is_base_of<Windows::Foundation::IInspectable, I>...>;
-        using is_weak_ref_source = std::conjunction<is_inspectable, std::negation<is_factory>, std::negation<std::disjunction<std::is_same<no_weak_ref, I>...>>>;
+        using is_weak_ref_source = std::conjunction<is_inspectable, std::negation<std::disjunction<std::is_same<no_weak_ref, I>...>>>;
         using use_module_lock = std::negation<std::disjunction<std::is_same<no_module_lock, I>...>>;
         using weak_ref_t = impl::weak_ref<is_agile::value, use_module_lock::value>;
 
@@ -1198,6 +1203,14 @@ namespace winrt::impl
     };
 #endif
 
+    inline com_ptr<IStaticLifetimeCollection> get_static_lifetime_map()
+    {
+        auto const lifetime_factory = get_activation_factory<impl::IStaticLifetime>(L"Windows.ApplicationModel.Core.CoreApplication");
+        Windows::Foundation::IUnknown collection;
+        check_hresult(lifetime_factory->GetCollection(put_abi(collection)));
+        return collection.as<IStaticLifetimeCollection>();
+    }
+
     template <typename D>
     auto make_factory() -> typename impl::implements_default_interface<D>::type
     {
@@ -1209,10 +1222,7 @@ namespace winrt::impl
         }
         else
         {
-            auto const lifetime_factory = get_activation_factory<impl::IStaticLifetime>(L"Windows.ApplicationModel.Core.CoreApplication");
-            Windows::Foundation::IUnknown collection;
-            check_hresult(lifetime_factory->GetCollection(put_abi(collection)));
-            auto const map = collection.as<IStaticLifetimeCollection>();
+            auto const map = get_static_lifetime_map();
             param::hstring const name{ name_of<typename D::instance_type>() };
             void* result{};
             map->Lookup(get_abi(name), &result);
@@ -1304,6 +1314,16 @@ WINRT_EXPORT namespace winrt
         }
     }
 
+    template <typename... FactoryClasses>
+    inline void clear_factory_static_lifetime()
+    {
+        auto unregister = [map = impl::get_static_lifetime_map()](param::hstring name)
+        {
+            map->Remove(get_abi(name));
+        };
+        ((unregister(name_of<typename FactoryClasses::instance_type>())), ...);
+    }
+
     template <typename D, typename... I>
     struct implements : impl::producers<D, I...>, impl::base_implements<D, I...>::type
     {
@@ -1311,7 +1331,6 @@ WINRT_EXPORT namespace winrt
 
         using base_type = typename impl::base_implements<D, I...>::type;
         using root_implements_type = typename base_type::root_implements_type;
-        using is_factory = typename root_implements_type::is_factory;
 
         using base_type::base_type;
 

@@ -90,7 +90,7 @@ Where <spec> is one or more of:
         settings.license = args.exists("license");
         settings.brackets = args.exists("brackets");
 
-        path output_folder = args.value("output");
+        path output_folder = args.value("output", ".");
         create_directories(output_folder / "winrt/impl");
         settings.output_folder = canonical(output_folder).string();
         settings.output_folder += '\\';
@@ -259,7 +259,7 @@ Where <spec> is one or more of:
             }
 
             process_args(args);
-            cache c{ get_files_to_cache() };
+            cache c{ get_files_to_cache(), [](TypeDef const& type) { return type.Flags().WindowsRuntime(); } };
             remove_foundation_types(c);
             build_filters(c);
             settings.base = settings.base || (!settings.component && settings.projection_filter.empty());

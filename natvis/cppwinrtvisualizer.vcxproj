@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <Import Project="packages\Microsoft.Windows.WinMD.1.0.191006.1\build\native\Microsoft.Windows.WinMD.props" Condition="Exists('packages\Microsoft.Windows.WinMD.1.0.191006.1\build\native\Microsoft.Windows.WinMD.props')" />
+  <Import Project="packages\Microsoft.Windows.WinMD.1.0.210311.4\build\native\Microsoft.Windows.WinMD.props" Condition="Exists('packages\Microsoft.Windows.WinMD.1.0.210311.4\build\native\Microsoft.Windows.WinMD.props')" />
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|Win32">
       <Configuration>Debug</Configuration>
@@ -77,23 +77,23 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <LinkIncremental>true</LinkIncremental>
-    <OutDir>x86\$(Configuration)\</OutDir>
-    <IntDir>x86\$(Configuration)\</IntDir>
+    <OutDir>x86\$(Configuration)\$(Deployment)\</OutDir>
+    <IntDir>x86\$(Configuration)\$(Deployment)\</IntDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
-    <OutDir>x64\$(Configuration)\</OutDir>
-    <IntDir>x64\$(Configuration)\</IntDir>
+    <OutDir>x64\$(Configuration)\$(Deployment)\</OutDir>
+    <IntDir>x64\$(Configuration)\$(Deployment)\</IntDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <LinkIncremental>false</LinkIncremental>
-    <OutDir>x86\$(Configuration)\</OutDir>
-    <IntDir>x86\$(Configuration)\</IntDir>
+    <OutDir>x86\$(Configuration)\$(Deployment)\</OutDir>
+    <IntDir>x86\$(Configuration)\$(Deployment)\</IntDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
-    <OutDir>x64\$(Configuration)\</OutDir>
-    <IntDir>x64\$(Configuration)\</IntDir>
+    <OutDir>x64\$(Configuration)\$(Deployment)\</OutDir>
+    <IntDir>x64\$(Configuration)\$(Deployment)\</IntDir>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -204,11 +204,16 @@
       <DelayLoadDLLs>vsdebugeng.dll</DelayLoadDLLs>
     </Link>
   </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Deployment)'=='Component'">
+    <ClCompile>
+      <AdditionalOptions>%(AdditionalOptions) /DCOMPONENT_DEPLOYMENT</AdditionalOptions>
+    </ClCompile>
+  </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="$(NugetPackagesDirectory)Microsoft.VSSDK.Debugger.VSDebugEng.*\inc\VSDebugEng.h" />
-    <ClInclude Include="$(NugetPackagesDirectory)Microsoft.VSSDK.Debugger.VSDebugEng.*\inc\vsdebugeng.templates.h" />
     <ClInclude Include="object_visualizer.h" />
     <ClInclude Include="cppwinrt_visualizer.h" />
+    <ClInclude Include="packages\Microsoft.VSSDK.Debugger.VSDebugEng.16.0.2012201-preview\inc\VSDebugEng.h" />
+    <ClInclude Include="packages\Microsoft.VSSDK.Debugger.VSDebugEng.16.0.2012201-preview\inc\vsdebugeng.templates.h" />
     <ClInclude Include="property_visualizer.h" />
     <ClInclude Include="pch.h" />
   </ItemGroup>
@@ -238,9 +243,7 @@
     <None Include="packages.config">
       <SubType>Designer</SubType>
     </None>
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="$(NugetPackagesDirectory)Microsoft.VSSDK.Debugger.VSDConfigTool.*\content\vsdconfig.xsd">
+    <None Include="packages\Microsoft.VSSDK.Debugger.VSDConfigTool.16.0.2012201-preview\content\vsdconfig.xsd">
       <SubType>Designer</SubType>
     </None>
   </ItemGroup>
@@ -258,6 +261,6 @@
     </PropertyGroup>
     <Error Condition="!Exists('packages\Microsoft.VSSDK.Debugger.VSDConfigTool.16.0.2012201-preview\build\Microsoft.VSSDK.Debugger.VSDConfigTool.targets')" Text="$([System.String]::Format('$(ErrorText)', 'packages\Microsoft.VSSDK.Debugger.VSDConfigTool.16.0.2012201-preview\build\Microsoft.VSSDK.Debugger.VSDConfigTool.targets'))" />
     <Error Condition="!Exists('packages\Microsoft.VSSDK.Debugger.VSDebugEng.16.0.2012201-preview\Microsoft.VSSDK.Debugger.VSDebugEng.targets')" Text="$([System.String]::Format('$(ErrorText)', 'packages\Microsoft.VSSDK.Debugger.VSDebugEng.16.0.2012201-preview\Microsoft.VSSDK.Debugger.VSDebugEng.targets'))" />
-    <Error Condition="!Exists('packages\Microsoft.Windows.WinMD.1.0.191006.1\build\native\Microsoft.Windows.WinMD.props')" Text="$([System.String]::Format('$(ErrorText)', 'packages\Microsoft.Windows.WinMD.1.0.191006.1\build\native\Microsoft.Windows.WinMD.props'))" />
+    <Error Condition="!Exists('packages\Microsoft.Windows.WinMD.1.0.210311.4\build\native\Microsoft.Windows.WinMD.props')" Text="$([System.String]::Format('$(ErrorText)', 'packages\Microsoft.Windows.WinMD.1.0.210311.4\build\native\Microsoft.Windows.WinMD.props'))" />
   </Target>
 </Project>

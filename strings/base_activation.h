@@ -24,17 +24,18 @@ namespace winrt::impl
         return error_class_not_available;
     }
 
-    template <typename Interface>
-    hresult get_runtime_activation_factory(param::hstring const& name, void** result) noexcept
+
+    template <bool isSameInterfaceAsIActivationFactory>
+    WINRT_IMPL_NOINLINE hresult get_runtime_activation_factory_impl(param::hstring const& name, winrt::guid const& guid, void** result) noexcept
     {
         if (winrt_activation_handler)
         {
-            return winrt_activation_handler(*(void**)(&name), guid_of<Interface>(), result);
+            return winrt_activation_handler(*(void**)(&name), guid, result);
         }
 
-        static int32_t(__stdcall * handler)(void* classId, guid const& iid, void** factory) noexcept;
-        impl::load_runtime_function("RoGetActivationFactory", handler, fallback_RoGetActivationFactory);
-        hresult hr = handler(*(void**)(&name), guid_of<Interface>(), result);
+        static int32_t(__stdcall * handler)(void* classId, winrt::guid const& iid, void** factory) noexcept;
+        impl::load_runtime_function(L"combase.dll", "RoGetActivationFactory", handler, fallback_RoGetActivationFactory);
+        hresult hr = handler(*(void**)(&name), guid, result);
 
         if (hr == impl::error_not_initialized)
         {
@@ -47,7 +48,7 @@ namespace winrt::impl
 
             void* cookie;
             usage(&cookie);
-            hr = handler(*(void**)(&name), guid_of<Interface>(), result);
+            hr = handler(*(void**)(&name), guid, result);
         }
 
         if (hr == 0)
@@ -87,13 +88,13 @@ namespace winrt::impl
                 continue;
             }
 
-            if constexpr (std::is_same_v< Interface, Windows::Foundation::IActivationFactory>)
+            if constexpr (isSameInterfaceAsIActivationFactory)
             {
                 *result = library_factory.detach();
                 library.detach();
                 return 0;
             }
-            else if (0 == library_factory.as(guid_of<Interface>(), result))
+            else if (0 == library_factory.as(guid, result))
             {
                 library.detach();
                 return 0;
@@ -102,6 +103,12 @@ namespace winrt::impl
 
         WINRT_IMPL_SetErrorInfo(0, error_info.get());
         return hr;
+    }
+
+    template <typename Interface>
+    hresult get_runtime_activation_factory(param::hstring const& name, void** result) noexcept
+    {
+        return get_runtime_activation_factory_impl<std::is_same_v<Interface, Windows::Foundation::IActivationFactory>>(name, guid_of<Interface>(), result);
     }
 }
 
@@ -332,7 +339,7 @@ namespace winrt::impl
     struct factory_cache_entry : factory_cache_entry_base
     {
         template <typename F>
-        __declspec(noinline) auto call(F&& callback)
+        WINRT_IMPL_NOINLINE auto call(F&& callback)
         {
 #ifdef WINRT_DIAGNOSTICS
             get_diagnostics_info().add_factory<Class>();
@@ -400,10 +407,9 @@ namespace winrt::impl
         return factory.call(static_cast<CastType>(callback));
     }
 
-    template <typename Class, typename Interface = Windows::Foundation::IActivationFactory>
-    com_ref<Interface> try_get_activation_factory(hresult_error* exception = nullptr) noexcept
+    template <typename Interface = Windows::Foundation::IActivationFactory>
+    com_ref<Interface> try_get_activation_factory(param::hstring const& name, hresult_error* exception = nullptr) noexcept
     {
-        param::hstring const name{ name_of<Class>() };
         void* result{};
         hresult const hr = get_runtime_activation_factory<Interface>(name, &result);
 
@@ -463,7 +469,7 @@ WINRT_EXPORT namespace winrt
     {
         // Normally, the callback avoids having to return a ref-counted object and the resulting AddRef/Release bump.
         // In this case we do want a unique reference, so we use the lambda to return one and thus produce an
-        // AddRef'd object that is returned to the caller. 
+        // AddRef'd object that is returned to the caller.
         return impl::call_factory<Class, Interface>([](auto&& factory)
         {
             return factory;
@@ -473,18 +479,36 @@ WINRT_EXPORT namespace winrt
     template <typename Class, typename Interface = Windows::Foundation::IActivationFactory>
     auto try_get_activation_factory() noexcept
     {
-        return impl::try_get_activation_factory<Class, Interface>();
+        return impl::try_get_activation_factory<Interface>(name_of<Class>());
     }
 
     template <typename Class, typename Interface = Windows::Foundation::IActivationFactory>
     auto try_get_activation_factory(hresult_error& exception) noexcept
     {
-        return impl::try_get_activation_factory<Class, Interface>(&exception);
+        return impl::try_get_activation_factory<Interface>(name_of<Class>(), &exception);
+    }
+
+    template <typename Interface = Windows::Foundation::IActivationFactory>
+    auto try_get_activation_factory(param::hstring const& name) noexcept
+    {
+        return impl::try_get_activation_factory<Interface>(name);
+    }
+
+    template <typename Interface = Windows::Foundation::IActivationFactory>
+    auto try_get_activation_factory(param::hstring const& name, hresult_error& exception) noexcept
+    {
+        return impl::try_get_activation_factory<Interface>(name, &exception);
     }
 
     inline void clear_factory_cache() noexcept
     {
         impl::get_factory_cache().clear();
+    }
+
+    template <typename Interface>
+    auto try_create_instance(guid const& clsid, uint32_t context = 0x1 /*CLSCTX_INPROC_SERVER*/, void* outer = nullptr)
+    {
+        return try_capture<Interface>(WINRT_IMPL_CoCreateInstance, clsid, outer, context);
     }
 
     template <typename Interface>
@@ -499,6 +523,10 @@ WINRT_EXPORT namespace winrt
         {
             IActivationFactory(std::nullptr_t = nullptr) noexcept {}
             IActivationFactory(void* ptr, take_ownership_from_abi_t) noexcept : IInspectable(ptr, take_ownership_from_abi) {}
+            IActivationFactory(IActivationFactory const&) noexcept = default;
+            IActivationFactory(IActivationFactory&&) noexcept = default;
+            IActivationFactory& operator=(IActivationFactory const&) & noexcept = default;
+            IActivationFactory& operator=(IActivationFactory&&) & noexcept = default;
 
             template <typename T>
             T ActivateInstance() const

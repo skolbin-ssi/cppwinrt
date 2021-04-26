@@ -29,7 +29,7 @@ namespace winrt::impl
             }
             else if (remaining < 0)
             {
-                std::terminate();
+                abort();
             }
 
             return remaining;
@@ -116,7 +116,7 @@ namespace winrt::impl
 
         if (value[length] != 0)
         {
-            std::terminate();
+            abort();
         }
 
         header.flags = hstring_reference_flag;
@@ -179,16 +179,16 @@ WINRT_EXPORT namespace winrt
             m_handle(impl::duplicate_hstring(value.m_handle.get()))
         {}
 
-        hstring& operator=(hstring const& value)
+        hstring& operator=(hstring const& value) &
         {
             m_handle.attach(impl::duplicate_hstring(value.m_handle.get()));
             return*this;
         }
 
         hstring(hstring&&) noexcept = default;
-        hstring& operator=(hstring&&) = default;
+        hstring& operator=(hstring&&) & = default;
         hstring(std::nullptr_t) = delete;
-        hstring& operator=(std::nullptr_t) = delete;
+        hstring& operator=(std::nullptr_t) & = delete;
 
         hstring(std::initializer_list<wchar_t> value) :
             hstring(value.begin(), static_cast<uint32_t>(value.size()))
@@ -206,17 +206,17 @@ WINRT_EXPORT namespace winrt
             hstring(value.data(), static_cast<size_type>(value.size()))
         {}
 
-        hstring& operator=(std::wstring_view const& value)
+        hstring& operator=(std::wstring_view const& value) &
         {
             return *this = hstring{ value };
         }
 
-        hstring& operator=(wchar_t const* const value)
+        hstring& operator=(wchar_t const* const value) &
         {
             return *this = hstring{ value };
         }
 
-        hstring& operator=(std::initializer_list<wchar_t> value)
+        hstring& operator=(std::initializer_list<wchar_t> value) &
         {
             return *this = hstring{ value };
         }

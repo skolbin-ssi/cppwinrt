@@ -27,8 +27,8 @@
 // Note: this is a workaround for a false-positive warning produced by the Visual C++ 16.3 compiler.
 #pragma warning(disable : 4268)
 
-#if defined(_RESUMABLE_FUNCTIONS_SUPPORTED) && !defined(__cpp_coroutines)
-#define __cpp_coroutines
+#if defined(__cpp_lib_coroutine) || defined(__cpp_coroutines) || defined(_RESUMABLE_FUNCTIONS_SUPPORTED)
+#define WINRT_IMPL_COROUTINES
 #endif
 
 #ifndef WINRT_EXPORT
@@ -43,6 +43,14 @@
 #undef _WINDOWS_NUMERICS_NAMESPACE_
 #undef _WINDOWS_NUMERICS_BEGIN_NAMESPACE_
 #undef _WINDOWS_NUMERICS_END_NAMESPACE_
+#endif
+
+#if defined(_MSC_VER)
+#define WINRT_IMPL_NOINLINE __declspec(noinline)
+#elif defined(__GNUC__)
+#define WINRT_IMPL_NOINLINE __attribute__((noinline))
+#else
+#define WINRT_IMPL_NOINLINE
 #endif
 
 #ifdef __IUnknown_INTERFACE_DEFINED__

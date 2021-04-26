@@ -2,6 +2,22 @@
 
 namespace cppwinrt
 {
+    struct finish_with
+    {
+        writer& w;
+        void (*finisher)(writer&);
+
+        finish_with(writer& w, void (*finisher)(writer&)) : w(w), finisher(finisher) {}
+        finish_with(finish_with const&)= delete;
+        void operator=(finish_with const&) = delete;
+
+        ~finish_with() { finisher(w); }
+    };
+
+    static void write_nothing(writer&)
+    {
+    }
+
     static void write_preamble(writer& w)
     {
         if (settings.license)
@@ -25,8 +41,9 @@ namespace cppwinrt
     {
         w.write_root_include("base");
         auto format = R"(static_assert(winrt::check_version(CPPWINRT_VERSION, "%"), "Mismatched C++/WinRT headers.");
+#define CPPWINRT_VERSION "%"
 )";
-        w.write(format, CPPWINRT_VERSION_STRING);
+        w.write(format, CPPWINRT_VERSION_STRING, CPPWINRT_VERSION_STRING);
     }
 
     static void write_include_guard(writer& w)
@@ -35,6 +52,19 @@ namespace cppwinrt
 )";
 
         w.write(format);
+    }
+
+    static void write_endif(writer& w)
+    {
+        auto format = R"(#endif
+)";
+
+        w.write(format);
+    }
+
+    static void write_close_file_guard(writer& w)
+    {
+        write_endif(w);
     }
 
     static void write_open_file_guard(writer& w, std::string_view const& file_name, char impl = 0)
@@ -59,20 +89,28 @@ namespace cppwinrt
         w.write(format, mangled_name, mangled_name);
     }
 
-    static void write_lean_and_mean(writer& w)
+    template<typename... Args>
+    [[nodiscard]] static finish_with wrap_open_file_guard(writer& w, Args&&... args)
     {
-        auto format = R"(#ifndef WINRT_LEAN_AND_MEAN
-)";
-
-        w.write(format);
+        write_open_file_guard(w, std::forward<Args>(args)...);
+        return { w, write_close_file_guard };
     }
 
-    static void write_endif(writer& w)
+    [[nodiscard]] static finish_with wrap_lean_and_mean(writer& w, bool is_lean_and_mean = true)
     {
-        auto format = R"(#endif
+        if (is_lean_and_mean)
+        {
+            auto format = R"(#ifndef WINRT_LEAN_AND_MEAN
 )";
 
-        w.write(format);
+            w.write(format);
+
+            return { w, write_endif };
+        }
+        else
+        {
+            return { w, write_nothing };
+        }
     }
 
     static void write_parent_depends(writer& w, cache const& c, std::string_view const& type_namespace)
@@ -108,37 +146,43 @@ namespace cppwinrt
         }
     }
 
-    static void write_impl_namespace(writer& w)
-    {
-        auto format = R"(namespace winrt::impl
-{
-)";
-
-        w.write(format);
-    }
-
-    static void write_std_namespace(writer& w)
-    {
-        w.write(R"(namespace std
-{
-)");
-    }
-
-    static void write_type_namespace(writer& w, std::string_view const& ns)
-    {
-        auto format = R"(WINRT_EXPORT namespace winrt::@
-{
-)";
-
-        w.write(format, ns);
-    }
-
     static void write_close_namespace(writer& w)
     {
         auto format = R"(}
 )";
 
         w.write(format);
+    }
+
+    [[nodiscard]] static finish_with wrap_impl_namespace(writer& w)
+    {
+        auto format = R"(namespace winrt::impl
+{
+)";
+
+        w.write(format);
+
+        return { w, write_close_namespace };
+    }
+
+    [[nodiscard]] static finish_with wrap_std_namespace(writer& w)
+    {
+        w.write(R"(namespace std
+{
+)");
+
+        return { w, write_close_namespace };
+    }
+
+    [[nodiscard]] static finish_with wrap_type_namespace(writer& w, std::string_view const& ns)
+    {
+        auto format = R"(WINRT_EXPORT namespace winrt::@
+{
+)";
+
+        w.write(format, ns);
+
+        return { w, write_close_namespace };
     }
 
     static void write_enum_field(writer& w, Field const& field)
@@ -494,7 +538,7 @@ namespace cppwinrt
 
     static void write_abi_params(writer& w, method_signature const& method_signature)
     {
-        w.abi_types = true;
+        auto abi_guard = w.push_abi_types(true);
         separator s{ w };
 
         for (auto&& [param, param_signature] : method_signature.params())
@@ -704,7 +748,6 @@ namespace cppwinrt
     {
         auto generics = type.GenericParam();
         auto guard{ w.push_generic_params(generics) };
-        w.abi_types = false;
 
         if (empty(generics))
         {
@@ -733,6 +776,7 @@ namespace cppwinrt
         auto format = R"(            virtual int32_t __stdcall %(%) noexcept = 0;
 )";
 
+        auto abi_guard = w.push_abi_types(true);
         for (auto&& method : type.MethodList())
         {
             try
@@ -771,7 +815,6 @@ namespace cppwinrt
         auto guard{ w.push_generic_params(generics) };
         auto method = get_delegate_method(type);
         method_signature signature{ method };
-        w.abi_types = false;
 
         w.write(format,
             bind<write_generic_typenames>(generics),
@@ -786,7 +829,7 @@ namespace cppwinrt
 
     static void write_struct_abi(writer& w, TypeDef const& type)
     {
-        w.abi_types = true;
+        auto abi_guard = w.push_abi_types(true);
 
         auto format = R"(    struct struct_%
     {
@@ -933,7 +976,7 @@ namespace cppwinrt
     static void write_consume_declaration(writer& w, MethodDef const& method)
     {
         method_signature signature{ method };
-        w.async_types = signature.is_async();
+        auto async_types_guard = w.push_async_types(signature.is_async());
         auto method_name = get_name(method);
         auto type = method.Parent();
 
@@ -959,8 +1002,6 @@ namespace cppwinrt
                 method_name,
                 bind<write_consume_params>(signature));
         }
-
-        w.async_types = false;
     }
 
     static void write_fast_consume_declarations(writer& w, TypeDef const& default_interface)
@@ -1003,16 +1044,13 @@ namespace cppwinrt
         uint32_t %_impl_size{};
         %* %{};)";
 
-            w.abi_types = true;
-            w.delegate_types = delegate_types;
+            auto abi_guard = w.push_abi_types(true);
+            auto delegate_guard = w.push_delegate_types(delegate_types);
 
             w.write(format,
                 signature.return_param_name(),
                 signature.return_signature(),
                 signature.return_param_name());
-
-            w.abi_types = false;
-            w.delegate_types = false;
         }
         else if (category == param_category::object_type || category == param_category::string_type)
         {
@@ -1074,7 +1112,7 @@ namespace cppwinrt
     {
         auto method_name = get_name(method);
         method_signature signature{ method };
-        w.async_types = signature.is_async();
+        auto async_types_guard = w.push_async_types(signature.is_async());
 
         std::string_view format;
 
@@ -1129,15 +1167,13 @@ namespace cppwinrt
                 method_name,
                 bind<write_consume_args>(signature));
         }
-
-        w.async_types = false;
     }
 
     static void write_consume_fast_base_definition(writer& w, MethodDef const& method, TypeDef const& class_type, TypeDef const& base_type)
     {
         auto method_name = get_name(method);
         method_signature signature{ method };
-        w.async_types = signature.is_async();
+        auto async_types_guard = w.push_async_types(signature.is_async());
 
         //
         // Note: this use of a lambda is a workaround for a Visual C++ compiler bug:
@@ -1181,8 +1217,6 @@ namespace cppwinrt
                 method_name,
                 bind<write_consume_args>(signature));
         }
-
-        w.async_types = false;
     }
 
     static void write_consume_definitions(writer& w, TypeDef const& type)
@@ -1249,12 +1283,17 @@ namespace cppwinrt
                 static_cast<D&>(*this) = nullptr;
             }
 
-            return *this;
+            return static_cast<D&>(*this);
         }
 
         auto operator*() const
         {
             return Current();
+        }
+
+        void operator++(int)
+        {
+            ++(*this);
         }
 )");
         }
@@ -1279,12 +1318,17 @@ namespace cppwinrt
                 static_cast<D&>(*this) = nullptr;
             }
 
-            return *this;
+            return static_cast<D&>(*this);
         }
 
         T operator*() const
         {
             return Current();
+        }
+
+        void operator++(int)
+        {
+            ++(*this);
         }
 )");
         }
@@ -1305,12 +1349,12 @@ namespace cppwinrt
         else if (type_name == "Windows.Foundation.Collections.IMapView`2")
         {
             w.write(R"(
-        auto TryLookup(param_type<K> const& key) const noexcept
+        auto TryLookup(param_type<K> const& key) const
         {
             if constexpr (std::is_base_of_v<Windows::Foundation::IUnknown, V>)
             {
                 V result{ nullptr };
-                WINRT_IMPL_SHIM(Windows::Foundation::Collections::IMapView<K, V>)->Lookup(get_abi(key), put_abi(result));
+                impl::check_hresult_allow_bounds(WINRT_IMPL_SHIM(Windows::Foundation::Collections::IMapView<K, V>)->Lookup(get_abi(key), put_abi(result)));
                 return result;
             }
             else
@@ -1318,7 +1362,7 @@ namespace cppwinrt
                 std::optional<V> result;
                 V value{ empty_value<V>() };
 
-                if (0 == WINRT_IMPL_SHIM(Windows::Foundation::Collections::IMapView<K, V>)->Lookup(get_abi(key), put_abi(value)))
+                if (0 == impl::check_hresult_allow_bounds(WINRT_IMPL_SHIM(Windows::Foundation::Collections::IMapView<K, V>)->Lookup(get_abi(key), put_abi(value))))
                 {
                     result = std::move(value);
                 }
@@ -1331,12 +1375,12 @@ namespace cppwinrt
         else if (type_name == "Windows.Foundation.Collections.IMap`2")
         {
             w.write(R"(
-        auto TryLookup(param_type<K> const& key) const noexcept
+        auto TryLookup(param_type<K> const& key) const
         {
             if constexpr (std::is_base_of_v<Windows::Foundation::IUnknown, V>)
             {
                 V result{ nullptr };
-                WINRT_IMPL_SHIM(Windows::Foundation::Collections::IMap<K, V>)->Lookup(get_abi(key), put_abi(result));
+                impl::check_hresult_allow_bounds(WINRT_IMPL_SHIM(Windows::Foundation::Collections::IMap<K, V>)->Lookup(get_abi(key), put_abi(result)));
                 return result;
             }
             else
@@ -1344,13 +1388,18 @@ namespace cppwinrt
                 std::optional<V> result;
                 V value{ empty_value<V>() };
 
-                if (0 == WINRT_IMPL_SHIM(Windows::Foundation::Collections::IMap<K, V>)->Lookup(get_abi(key), put_abi(value)))
+                if (0 == impl::check_hresult_allow_bounds(WINRT_IMPL_SHIM(Windows::Foundation::Collections::IMap<K, V>)->Lookup(get_abi(key), put_abi(value))))
                 {
                     result = std::move(value);
                 }
 
                 return result;
             }
+        }
+
+        auto TryRemove(param_type<K> const& key) const
+        {
+            return 0 == impl::check_hresult_allow_bounds(WINRT_IMPL_SHIM(Windows::Foundation::Collections::IMap<K, V>)->Remove(get_abi(key)));
         }
 )");
         }
@@ -1378,6 +1427,20 @@ namespace cppwinrt
         auto wait_for(Windows::Foundation::TimeSpan const& timeout) const;
 )");
         }
+        else if (type_name == "Windows.Foundation.Collections.IIterable`1")
+        {
+            w.write(R"(
+        auto begin() const;
+        auto end() const;
+)");
+        }
+        else if (type_name == "Windows.UI.Xaml.Interop.IBindableIterable")
+        {
+            w.write(R"(
+        auto begin() const;
+        auto end() const;
+)");
+        }
     }
 
     static void write_interface_extensions(writer& w, TypeDef const& type)
@@ -1387,11 +1450,23 @@ namespace cppwinrt
         if (type_name == "Windows.Foundation.Collections.IIterator`1")
         {
             w.write(R"(
+        using iterator_concept = std::input_iterator_tag;
         using iterator_category = std::input_iterator_tag;
         using value_type = T;
         using difference_type = ptrdiff_t;
-        using pointer = T*;
-        using reference = T&;
+        using pointer = void;
+        using reference = T;
+)");
+        }
+        else if (type_name == "Windows.UI.Xaml.Interop.IBindableIterator")
+        {
+            w.write(R"(
+        using iterator_concept = std::input_iterator_tag;
+        using iterator_category = std::input_iterator_tag;
+        using value_type = Windows::Foundation::IInspectable;
+        using difference_type = ptrdiff_t;
+        using pointer = void;
+        using reference = Windows::Foundation::IInspectable;
 )");
         }
         else if (type_name == "Windows.Foundation.IReference`1")
@@ -1411,7 +1486,6 @@ namespace cppwinrt
 
     static void write_consume(writer& w, TypeDef const& type)
     {
-        w.abi_types = false;
         auto generics = type.GenericParam();
         auto guard{ w.push_generic_params(generics) };
         auto type_name = type.TypeName();
@@ -1473,7 +1547,6 @@ namespace cppwinrt
 
     static void write_produce_params(writer& w, method_signature const& signature)
     {
-        w.param_names = true;
         write_abi_params(w, signature);
     }
 
@@ -1481,7 +1554,6 @@ namespace cppwinrt
     static void write_produce_cleanup_param(writer& w, T const& param_signature, std::string_view const& param_name, bool out)
     {
         TypeSig const& signature = param_signature.Type();
-        w.abi_types = false;
         bool clear{};
         bool optional{};
         bool zero{};
@@ -1583,7 +1655,7 @@ namespace cppwinrt
         else if (optional)
         {
             auto format = R"(            if (%) *% = nullptr;
-            Windows::Foundation::IInspectable winrt_impl_%;
+            winrt::Windows::Foundation::IInspectable winrt_impl_%;
 )";
 
             w.write(format, param_name, param_name, param_name);
@@ -1610,7 +1682,6 @@ namespace cppwinrt
 
     static void write_produce_args(writer& w, method_signature const& method_signature)
     {
-        w.abi_types = false;
         separator s{ w };
 
         for (auto&& [param, param_signature] : method_signature.params())
@@ -1689,8 +1760,6 @@ namespace cppwinrt
 
     static void write_produce_upcall(writer& w, std::string_view const& upcall, method_signature const& method_signature)
     {
-        w.abi_types = false;
-
         if (method_signature.return_signature())
         {
             auto name = method_signature.return_param_name();
@@ -1757,7 +1826,7 @@ namespace cppwinrt
         }
 
         method_signature signature{ method };
-        w.async_types = signature.is_async();
+        auto async_types_guard = w.push_async_types(signature.is_async());
         std::string upcall = "this->shim().";
         upcall += get_name(method);
 
@@ -1766,8 +1835,6 @@ namespace cppwinrt
             bind<write_produce_params>(signature),
             bind<write_produce_cleanup>(signature),
             bind<write_produce_upcall>(upcall, signature));
-
-        w.async_types = false;
     }
 
     static void write_fast_produce_methods(writer& w, TypeDef const& default_interface)
@@ -1826,10 +1893,7 @@ namespace cppwinrt
         auto guard{ w.push_generic_params(generics) };
         bool const lean_and_mean = !can_produce(type, c);
 
-        if (lean_and_mean)
-        {
-            write_lean_and_mean(w);
-        }
+        auto wrap = wrap_lean_and_mean(w, lean_and_mean);
 
         w.write(format,
             bind<write_comma_generic_typenames>(generics),
@@ -1837,16 +1901,11 @@ namespace cppwinrt
             type,
             bind_each<write_produce_method>(type.MethodList()),
             bind<write_fast_produce_methods>(type));
-
-        if (lean_and_mean)
-        {
-            write_endif(w);
-        }
     }
 
     static void write_dispatch_overridable_method(writer& w, MethodDef const& method)
     {
-        auto format = R"(    auto %(%)
+        auto format = R"(    auto %(%)%
     {
         if (auto overridable = this->shim_overridable())
         {
@@ -1862,6 +1921,7 @@ namespace cppwinrt
         w.write(format,
             get_name(method),
             bind<write_implementation_params>(signature),
+            is_noexcept(method) ? " noexcept" : "",
             get_name(method),
             bind<write_consume_args>(signature),
             get_name(method),
@@ -1891,7 +1951,7 @@ struct __declspec(empty_bases) produce_dispatch_to_overridable<T, D, %>
 
     static void write_interface_override_method(writer& w, MethodDef const& method, std::string_view const& interface_name)
     {
-        auto format = R"(    template <typename D> WINRT_IMPL_AUTO(%) %T<D>::%(%) const
+        auto format = R"(    template <typename D> WINRT_IMPL_AUTO(%) %T<D>::%(%) const%
     {
         return shim().template try_as<%>().%(%);
     }
@@ -1905,6 +1965,7 @@ struct __declspec(empty_bases) produce_dispatch_to_overridable<T, D, %>
             interface_name,
             method_name,
             bind<write_consume_params>(signature),
+            is_noexcept(method) ? " noexcept" : "",
             interface_name,
             method_name,
             bind<write_consume_args>(signature));
@@ -1938,7 +1999,7 @@ struct __declspec(empty_bases) produce_dispatch_to_overridable<T, D, %>
 
         if (!found)
         {
-            w.write(", Windows::Foundation::IInspectable");
+            w.write(", winrt::Windows::Foundation::IInspectable");
         }
     }
 
@@ -2088,7 +2149,7 @@ struct __declspec(empty_bases) produce_dispatch_to_overridable<T, D, %>
         D& shim() noexcept { return *static_cast<D*>(this); }
         D const& shim() const noexcept { return *static_cast<const D*>(this); }
     public:
-        using % = winrt::%;
+        using % = %;
 %    };
 )";
 
@@ -2291,11 +2352,15 @@ struct __declspec(empty_bases) produce_dispatch_to_overridable<T, D, %>
         if (empty(generics))
         {
             auto format = R"(    struct __declspec(empty_bases) % :
-        Windows::Foundation::IInspectable,
+        winrt::Windows::Foundation::IInspectable,
         impl::consume_t<%>%
     {
         %(std::nullptr_t = nullptr) noexcept {}
-        %(void* ptr, take_ownership_from_abi_t) noexcept : Windows::Foundation::IInspectable(ptr, take_ownership_from_abi) {}
+        %(void* ptr, take_ownership_from_abi_t) noexcept : winrt::Windows::Foundation::IInspectable(ptr, take_ownership_from_abi) {}
+        %(% const&) noexcept = default;
+        %(%&&) noexcept = default;
+        %& operator=(% const&) & noexcept = default;
+        %& operator=(%&&) & noexcept = default;
 %%    };
 )";
 
@@ -2305,6 +2370,14 @@ struct __declspec(empty_bases) produce_dispatch_to_overridable<T, D, %>
                 bind<write_interface_requires>(type),
                 type_name,
                 type_name,
+                type_name, // %(T const&)
+                type_name, // T(% const&)
+                type_name, // %(T&&)
+                type_name, // T(%&&)
+                type_name, // %& operator=(T const&)
+                type_name, // T& operator=(% const&)
+                type_name, // %& operator=(T&&)
+                type_name, // T& operator=(%&&)
                 bind<write_interface_usings>(type),
                 bind<write_interface_extensions>(type));
         }
@@ -2314,11 +2387,15 @@ struct __declspec(empty_bases) produce_dispatch_to_overridable<T, D, %>
 
             auto format = R"(    template <%>
     struct __declspec(empty_bases) % :
-        Windows::Foundation::IInspectable,
+        winrt::Windows::Foundation::IInspectable,
         impl::consume_t<%>%
     {%
         %(std::nullptr_t = nullptr) noexcept {}
-        %(void* ptr, take_ownership_from_abi_t) noexcept : Windows::Foundation::IInspectable(ptr, take_ownership_from_abi) {}
+        %(void* ptr, take_ownership_from_abi_t) noexcept : winrt::Windows::Foundation::IInspectable(ptr, take_ownership_from_abi) {}
+        %(% const&) noexcept = default;
+        %(%&&) noexcept = default;
+        %& operator=(% const&) & noexcept = default;
+        %& operator=(%&&) & noexcept = default;
 %%    };
 )";
 
@@ -2330,6 +2407,14 @@ struct __declspec(empty_bases) produce_dispatch_to_overridable<T, D, %>
                 bind<write_generic_asserts>(generics),
                 type_name,
                 type_name,
+                type_name, // %(T const&)
+                type_name, // T(% const&)
+                type_name, // %(T&&)
+                type_name, // T(%&&)
+                type_name, // %& operator=(T const&)
+                type_name, // T& operator=(% const&)
+                type_name, // %& operator=(T&&)
+                type_name, // T& operator=(%&&)
                 bind<write_interface_usings>(type),
                 bind<write_interface_extensions>(type));
         }
@@ -2355,6 +2440,10 @@ struct __declspec(empty_bases) produce_dispatch_to_overridable<T, D, %>
     {%
         %(std::nullptr_t = nullptr) noexcept {}
         %(void* ptr, take_ownership_from_abi_t) noexcept : Windows::Foundation::IUnknown(ptr, take_ownership_from_abi) {}
+        %(% const&) noexcept = default;
+        %(%&&) noexcept = default;
+        %& operator=(% const&) & noexcept = default;
+        %& operator=(%&&) & noexcept = default;
         template <typename L> %(L lambda);
         template <typename F> %(F* function);
         template <typename O, typename M> %(O* object, M method);
@@ -2367,10 +2456,18 @@ struct __declspec(empty_bases) produce_dispatch_to_overridable<T, D, %>
         method_signature signature{ get_delegate_method(type) };
 
         w.write(format,
-            type_name,
+            type_name, // struct %
             bind<write_generic_asserts>(generics),
             type_name,
             type_name,
+            type_name, // %(T const&)
+            type_name, // T(% const&)
+            type_name, // %(T&&)
+            type_name, // T(%&&)
+            type_name, // %& operator=(T const&)
+            type_name, // T& operator=(% const&)
+            type_name, // %& operator=(T&&)
+            type_name, // T& operator=(%&&)
             type_name,
             type_name,
             type_name,
@@ -2394,7 +2491,6 @@ struct __declspec(empty_bases) produce_dispatch_to_overridable<T, D, %>
     };
 )";
 
-        w.param_names = true;
         auto generics = type.GenericParam();
         auto guard{ w.push_generic_params(generics) };
         method_signature signature{ get_delegate_method(type) };
@@ -2796,7 +2892,6 @@ struct __declspec(empty_bases) produce_dispatch_to_overridable<T, D, %>
 
     static void write_constructor_declarations(writer& w, TypeDef const& type, std::map<std::string, factory_info> const& factories)
     {
-        w.async_types = false;
         auto type_name = type.TypeName();
 
         for (auto&& [factory_name, factory] : factories)
@@ -2839,8 +2934,6 @@ struct __declspec(empty_bases) produce_dispatch_to_overridable<T, D, %>
 
     static void write_constructor_definition(writer& w, MethodDef const& method, TypeDef const& type, TypeDef const& factory)
     {
-        w.async_types = false;
-
         auto type_name = type.TypeName();
         method_signature signature{ method };
 
@@ -2870,7 +2963,7 @@ struct __declspec(empty_bases) produce_dispatch_to_overridable<T, D, %>
 
         auto format = R"(    inline %::%(%)
     {
-        Windows::Foundation::IInspectable %, %;
+        winrt::Windows::Foundation::IInspectable %, %;
         *this = % { return f.%(%%%, %); });
     }
 )";
@@ -2901,7 +2994,7 @@ struct __declspec(empty_bases) produce_dispatch_to_overridable<T, D, %>
         {
             method_signature signature{ method };
             auto method_name = get_name(method);
-            w.async_types = signature.is_async();
+            auto async_types_guard = w.push_async_types(signature.is_async());
 
             if (settings.component_opt && settings.component_filter.includes(type))
             {
@@ -2935,8 +3028,6 @@ struct __declspec(empty_bases) produce_dispatch_to_overridable<T, D, %>
                     bind<write_consume_params>(signature));
             }
         }
-
-        w.async_types = false;
     }
 
     static void write_static_definitions(writer& w, MethodDef const& method, TypeDef const& type, TypeDef const& factory)
@@ -2944,7 +3035,7 @@ struct __declspec(empty_bases) produce_dispatch_to_overridable<T, D, %>
         auto type_name = type.TypeName();
         method_signature signature{ method };
         auto method_name = get_name(method);
-        w.async_types = signature.is_async();
+        auto async_types_guard = w.push_async_types(signature.is_async());
 
         {
             auto format = R"(    inline auto %::%(%)
@@ -2981,8 +3072,6 @@ struct __declspec(empty_bases) produce_dispatch_to_overridable<T, D, %>
                 method_name,
                 bind<write_consume_args>(signature));
         }
-
-        w.async_types = false;
     }
 
     static void write_class_definitions(writer& w, TypeDef const& type)
@@ -3005,7 +3094,7 @@ struct __declspec(empty_bases) produce_dispatch_to_overridable<T, D, %>
                     if (has_fastabi(type))
                     {
                         format = R"(    inline %::%() :
-        %(impl::call_factory_cast<%(*)(Windows::Foundation::IActivationFactory const&), %>([](Windows::Foundation::IActivationFactory const& f) { return impl::fast_activate<%>(f); }))
+        %(impl::call_factory_cast<%(*)(winrt::Windows::Foundation::IActivationFactory const&), %>([](winrt::Windows::Foundation::IActivationFactory const& f) { return impl::fast_activate<%>(f); }))
     {
     }
 )";
@@ -3013,7 +3102,7 @@ struct __declspec(empty_bases) produce_dispatch_to_overridable<T, D, %>
                     else
                     {
                         format = R"(    inline %::%() :
-        %(impl::call_factory_cast<%(*)(Windows::Foundation::IActivationFactory const&), %>([](Windows::Foundation::IActivationFactory const& f) { return f.template ActivateInstance<%>(); }))
+        %(impl::call_factory_cast<%(*)(winrt::Windows::Foundation::IActivationFactory const&), %>([](winrt::Windows::Foundation::IActivationFactory const& f) { return f.template ActivateInstance<%>(); }))
     {
     }
 )";
@@ -3052,7 +3141,11 @@ struct __declspec(empty_bases) produce_dispatch_to_overridable<T, D, %>
     {
         %(std::nullptr_t) noexcept {}
         %(void* ptr, take_ownership_from_abi_t) noexcept : %(ptr, take_ownership_from_abi) {}
-%%%    };
+%        %(% const&) noexcept = default;
+        %(%&&) noexcept = default;
+        %& operator=(% const&) & noexcept = default;
+        %& operator=(%&&) & noexcept = default;
+%%    };
 )";
 
         w.write(format,
@@ -3064,6 +3157,14 @@ struct __declspec(empty_bases) produce_dispatch_to_overridable<T, D, %>
             type_name,
             base_type,
             bind<write_constructor_declarations>(type, factories),
+            type_name, // %(T const&)
+            type_name, // T(% const&)
+            type_name, // %(T%&)
+            type_name, // T(%&&)
+            type_name, // %& operator=(T const&)
+            type_name, // T& operator=(% const&)
+            type_name, // %& operator=(T&&)
+            type_name, // T& operator=(%&&)
             bind<write_class_usings>(type),
             bind_each<write_static_declaration>(factories, type));
     }
@@ -3077,7 +3178,11 @@ struct __declspec(empty_bases) produce_dispatch_to_overridable<T, D, %>
     {
         %(std::nullptr_t) noexcept {}
         %(void* ptr, take_ownership_from_abi_t) noexcept : %(ptr, take_ownership_from_abi) {}
-%%%    };
+%        %(% const&) noexcept = default;
+        %(%&&) noexcept = default;
+        %& operator=(% const&) & noexcept = default;
+        %& operator=(%&&) & noexcept = default;
+%%    };
 )";
 
         w.write(format,
@@ -3088,6 +3193,14 @@ struct __declspec(empty_bases) produce_dispatch_to_overridable<T, D, %>
             type_name,
             base_type,
             bind<write_constructor_declarations>(type, factories),
+            type_name, // %(T const&)
+            type_name, // T(% const&)
+            type_name, // %(T%&)
+            type_name, // T(%&&)
+            type_name, // %& operator=(T const&)
+            type_name, // T& operator=(% const&)
+            type_name, // %& operator=(T&&)
+            type_name, // T& operator=(%&&)
             bind<write_fast_class_base_declarations>(type),
             bind_each<write_static_declaration>(factories, type));
     }
@@ -3132,24 +3245,17 @@ struct __declspec(empty_bases) produce_dispatch_to_overridable<T, D, %>
     {
         auto generics = type.GenericParam();
 
-        w.write("    template<%> struct hash<winrt::%> : winrt::impl::hash_base {};\n",
+        w.write("    template<%> struct hash<%> : winrt::impl::hash_base {};\n",
             bind<write_generic_typenames>(generics),
             type);
     }
 
-    static void write_namespace_special(writer& w, std::string_view const& namespace_name, cache const& c)
+    static void write_namespace_special(writer& w, std::string_view const& namespace_name)
     {
         if (namespace_name == "Windows.Foundation")
         {
-            if (c.find("Windows.Foundation.PropertyValue"))
-            {
-                w.write(strings::base_reference_produce);
-            }
-            if (c.find("Windows.Foundation.Deferral"))
-            {
-                w.write(strings::base_deferral);
-            }
-
+            w.write(strings::base_reference_produce);
+            w.write(strings::base_deferral);
             w.write(strings::base_coroutine_foundation);
         }
         else if (namespace_name == "Windows.Foundation.Collections")
@@ -3168,6 +3274,10 @@ struct __declspec(empty_bases) produce_dispatch_to_overridable<T, D, %>
         {
             w.write(strings::base_coroutine_system);
         }
+        else if (namespace_name == "Microsoft.System")
+        {
+            w.write(strings::base_coroutine_system_winui);
+        }
         else if (namespace_name == "Windows.UI.Core")
         {
             w.write(strings::base_coroutine_ui_core);
@@ -3175,6 +3285,14 @@ struct __declspec(empty_bases) produce_dispatch_to_overridable<T, D, %>
         else if (namespace_name == "Windows.UI.Xaml.Interop")
         {
             w.write(strings::base_xaml_typename);
+        }
+    }
+
+    static void write_namespace_special_1(writer& w, std::string_view const& namespace_name)
+    {
+        if (namespace_name == "Windows.Foundation")
+        {
+            w.write(strings::base_reference_produce_1);
         }
     }
 }

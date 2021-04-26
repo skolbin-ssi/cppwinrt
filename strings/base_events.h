@@ -29,7 +29,7 @@ WINRT_EXPORT namespace winrt
         event_revoker& operator=(event_revoker const&) = delete;
         event_revoker(event_revoker&&) noexcept = default;
 
-        event_revoker& operator=(event_revoker&& other) noexcept
+        event_revoker& operator=(event_revoker&& other) & noexcept
         {
             if (this != &other)
             {
@@ -84,7 +84,7 @@ WINRT_EXPORT namespace winrt
         factory_event_revoker& operator=(factory_event_revoker const&) = delete;
         factory_event_revoker(factory_event_revoker&&) noexcept = default;
 
-        factory_event_revoker& operator=(factory_event_revoker&& other) noexcept
+        factory_event_revoker& operator=(factory_event_revoker&& other) & noexcept
         {
             if (this != &other)
             {
@@ -140,7 +140,7 @@ namespace winrt::impl
         event_revoker& operator=(event_revoker const&) = delete;
 
         event_revoker(event_revoker&&) noexcept = default;
-        event_revoker& operator=(event_revoker&& other) noexcept
+        event_revoker& operator=(event_revoker&& other) & noexcept
         {
             event_revoker(std::move(other)).swap(*this);
             return *this;
@@ -352,7 +352,7 @@ namespace winrt::impl
             int32_t const code = to_hresult();
 
             static int32_t(__stdcall * handler)(int32_t, int32_t, void*) noexcept;
-            impl::load_runtime_function("RoTransformError", handler, fallback_RoTransformError);
+            impl::load_runtime_function(L"combase.dll", "RoTransformError", handler, fallback_RoTransformError);
             handler(code, 0, nullptr);
 
             if (code == static_cast<int32_t>(0x80010108) || // RPC_E_DISCONNECTED
