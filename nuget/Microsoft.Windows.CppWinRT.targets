@@ -250,7 +250,7 @@ Copyright (C) Microsoft Corporation. All rights reserved.
             <WinMDFullPath Include="@(_CppWinRTProjectWinMDItems->FullPath()->Distinct()->ClearMetadata())" Condition="'$(CppWinRTGenerateWindowsMetadata)' == 'true'">
                 <TargetPath>$([System.IO.Path]::GetFileName('$(CppWinRTProjectWinMD)'))</TargetPath>
                 <Primary>true</Primary>
-                <Implementation Condition="'$(TargetExt)' == '.dll'">$(WinMDImplementationPath)$(TargetName)$(TargetExt)</Implementation>
+                <Implementation Condition="'$(TargetExt)' == '.dll' or '$(TargetExt)' == '.exe'">$(WinMDImplementationPath)$(TargetName)$(TargetExt)</Implementation>
                 <FileType>winmd</FileType>
                 <WinMDFile>true</WinMDFile>
                 <ProjectName>$(MSBuildProjectName)</ProjectName>
@@ -561,7 +561,8 @@ $(XamlMetaDataProviderPch)
         </PropertyGroup>
         <PropertyGroup>
             <!-- mdmerge.exe wants the folders to not have a trailing \ -->
-            <_MdMergeParameters>-v @(CppWinRTMdMergeMetadataDirectories->'-metadata_dir &quot;%(RelativeDir).&quot;', '&#x0d;&#x0a;')</_MdMergeParameters>
+            <_MdMergeParameters Condition="'$(CppWinRTMergeNoValidate)'!='true'">-v</_MdMergeParameters>
+            <_MdMergeParameters>$(_MdMergeParameters) @(CppWinRTMdMergeMetadataDirectories->'-metadata_dir &quot;%(RelativeDir).&quot;', '&#x0d;&#x0a;')</_MdMergeParameters>
             <_MdMergeParameters>$(_MdMergeParameters) @(CppWinRTMdMergeInputs->'-i &quot;%(Identity)&quot;', '&#x0d;&#x0a;')</_MdMergeParameters>
             <_MdMergeParameters>$(_MdMergeParameters) -o &quot;$(CppWinRTMergedDir.TrimEnd('\'))&quot; -partial $(_MdMergeDepth)</_MdMergeParameters>
         </PropertyGroup>
